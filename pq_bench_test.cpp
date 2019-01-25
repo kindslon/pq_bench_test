@@ -55,7 +55,7 @@ typedef std::vector<WorkerOutput> WorkerOutputArray;
 void print_usage(char *prog_name);
 void parse_query_param_line(char *line, int line_no, QueryParam &param);
 void *worker_func(void *arg);
-void exit_nicely(PGconn *conn);
+void exit_gracefully(PGconn *conn);
 void execute_query(PGconn *conn, const char *query);
 
 // global data area
@@ -162,6 +162,7 @@ int main(int argc, char* argv[])
             // add host to map and assign it to next available worker
             slot = (next_worker_no < num_workers) ?
                 next_worker_no : 0;
+            
             // advance the pointer to next slot or reset if reached max
             if(next_worker_no+1 < num_workers)
                 next_worker_no++;
@@ -212,7 +213,12 @@ int main(int argc, char* argv[])
     {
         threads_array.push_back({pthread_t(), i});
         int rc = 0;
-        if ( (rc = pthread_create(&threads_array[i].thread, NULL, worker_func, (void*)&threads_array[i].worker_no)) ) 
+        if ( (rc = pthread_create(
+                &threads_array[i].thread, 
+                NULL, 
+                worker_func, 
+                (void*)&threads_array[i].worker_no)) 
+            ) 
         {
             fprintf(stderr, "failed to create thread num %d, rc: %d\n", i, rc);
             return EXIT_FAILURE;
@@ -346,7 +352,7 @@ void *worker_func(void *arg)
     {
         fprintf(stderr, "connection to database failed: %s\n",
             PQerrorMessage(conn));
-        exit_nicely(conn);
+        exit_gracefully(conn);
     }
 
     // traverse through all query parameters
@@ -398,7 +404,7 @@ void *worker_func(void *arg)
     PQfinish(conn);
 }
 
-void exit_nicely(PGconn *conn)
+void exit_gracefully(PGconn *conn)
 {
     PQfinish(conn);
     exit(EXIT_FAILURE);
@@ -414,7 +420,7 @@ void execute_query(PGconn *conn, const char *query)
         fprintf(stderr, "query failed.\nError: %s\nContent: '%s'\n", 
             PQerrorMessage(conn), query);
         PQclear(res);
-        exit_nicely(conn);
+        exit_gracefully(conn);
     }
     
     if(dbg) {

@@ -8,6 +8,8 @@ To build, run `make -f build.mk` in the directory containing `pq_bench_test.cpp`
 
 This will build the the standalone utility `pq_bench_test`, which does all the job.
 
+To remove all built files, run `make -f build.mk clean`.
+
 It is assumed that you have the test environment setup as per the assignment description.
 
 Run `./pq_bench_test -h` to see the usage, which is self-explanatory.
