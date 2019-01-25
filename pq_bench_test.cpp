@@ -1,9 +1,3 @@
-/*
- * 
- * pg_config --includedir
- * /usr/lib/x86_64-linux-gnu/
-
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +16,7 @@
 
 // max allowed number of workers; set as deemed reasonable
 const int max_num_workers = 50;
+int dbg = 0; // if 1, some debug info is printed
 
 // host => worker assignment
 typedef std::map<std::string, int> HostWorkerMap;
@@ -57,15 +52,12 @@ struct WorkerOutput
 // (the index is the worker number)
 typedef std::vector<WorkerOutput> WorkerOutputArray;
 
-struct WorkerData 
-{
-    int worker_no;
-    QueryParamArray *quare_param_array;
-};
-
+// forward declarations
 void print_usage(char *prog_name);
 void parse_query_param_line(char *line, int line_no, QueryParam &param);
 void *worker_func(void *arg);
+void exit_nicely(PGconn *conn);
+void execute_query(PGconn *conn, const char *query);
 
 // global data area
 AllQueryParamArrays all_query_param_arrays;
@@ -73,6 +65,8 @@ WorkerOutputArray worker_output_array;
 
 int main(int argc, char* argv[]) 
 {
+    errno = 0; // workouround for libpq errno problem, need to reset
+
     // first, parse the arguments
     
     int opt;
@@ -82,27 +76,34 @@ int main(int argc, char* argv[])
     
     strcpy(prog_name, argv[0]);
 
-    if(argc < 2) {
+    if(argc < 2) 
+    {
         print_usage(prog_name);
     }    
     
-    while((opt = getopt(argc, argv, ":hn:f:")) != -1)  
+    while((opt = getopt(argc, argv, ":hvn:f:")) != -1)  
     {  
         switch(opt)  
         {  
             case 'h':
                 print_usage(prog_name);
                 exit(EXIT_SUCCESS);
+            case 'v':
+                dbg = 1;
+                break;
             case 'f':  
                 in_file = fopen(optarg, "r");
-                if(in_file == NULL) {
-                    fprintf(stderr, "Cannot open input file %s (errno=%d)\n", optarg, errno);
+                if(in_file == NULL) 
+                {
+                    fprintf(stderr, "cannot open input file %s (errno=%d)\n", optarg, errno);
                     exit(EXIT_FAILURE);
                 }
                 break;
             case 'n':
                 num_workers = strtol(optarg, NULL, 10);
-                if(errno > 0 || num_workers <= 0 || num_workers > max_num_workers) {
+                fprintf(stderr, "errno=%d, num_workers=%d, max_num_workers=%d\n", errno, num_workers, max_num_workers);
+                if(errno > 0 || num_workers <= 0 || num_workers > max_num_workers)
+                {
                     print_usage(prog_name);
                     fprintf(stderr, "invalid value for argument -n: %s\n", optarg);
                     exit(EXIT_FAILURE);
@@ -119,12 +120,14 @@ int main(int argc, char* argv[])
         }  
     }  
       
-    if(optind < argc){  
+    if(optind < argc)
+    {  
         print_usage(prog_name);
         fprintf(stderr, "unexpected argument: %s\n", argv[optind]);  
     }
     
-    if(num_workers == 0) {
+    if(num_workers == 0) 
+    {
         print_usage(prog_name);
         fprintf(stderr, "missing mandatory argument -n <num_workers>\n");
         exit(EXIT_FAILURE);
@@ -156,7 +159,8 @@ int main(int argc, char* argv[])
         int slot;
         if(iter != host_worker_map.end())
             slot = iter->second;
-        else {
+        else 
+        {
             // add host to map and assign it to next available worker
             slot = (next_worker_no < num_workers) ?
                 next_worker_no : 0;
@@ -168,16 +172,19 @@ int main(int argc, char* argv[])
 
             host_worker_map.insert({query_param.host, slot});
         }
-        fprintf(stderr, "adding to slot %d: %s, %s, %s\n",
+        
+        if(dbg) 
+        {
+            fprintf(stderr, "adding to slot %d: %s, %s, %s\n",
                 slot, query_param.host.c_str(), 
-                query_param.start_time.c_str(), query_param.end_time.c_str());
+                query_param.start_time.c_str(), query_param.end_time.c_str()
+            );
+        }
         
         // if such slot doesn't exist, create new empty one
-        if(slot+1 > all_query_param_arrays.size()){
-            //QueryParamArray query_param_array;
+        if(slot+1 > all_query_param_arrays.size())
+        {
             all_query_param_arrays.push_back(QueryParamArray());
-            //all_query_param_arrays.push_back(query_param_array);
-            //WorkerOutput 
             worker_output_array.push_back(WorkerOutput());
         }
         all_query_param_arrays[slot].push_back(query_param);
@@ -199,18 +206,21 @@ int main(int argc, char* argv[])
     };
     std::vector<ThreadElem> threads_array;
 
-    for (int i = 0; i < num_workers; i++) {
-        //pthread_t thr;
+    for (int i = 0; i < num_workers; i++) 
+    {
         threads_array.push_back({pthread_t(), i});
         int rc = 0;
-        if ( (rc = pthread_create(&threads_array[i].thread, NULL, worker_func, (void*)&threads_array[i].worker_no)) ) {
+        if ( (rc = pthread_create(&threads_array[i].thread, NULL, worker_func, (void*)&threads_array[i].worker_no)) ) 
+        {
             fprintf(stderr, "failed to create thread num %d, rc: %d\n", i, rc);
             return EXIT_FAILURE;
         }
     }
         
-    /* wait for all workers to complete */
-    for (int i = 0; i < num_workers; i++) {
+    // wait for all workers to complete
+    
+    for (int i = 0; i < num_workers; i++) 
+    {
         pthread_join(threads_array[i].thread, NULL);
     }
     
@@ -227,7 +237,8 @@ int main(int argc, char* argv[])
     // combines all query times from all workers, to get the median
     std::vector<double> all_times; 
     
-    for(int i = 0; i < num_workers; i++) {
+    for(int i = 0; i < num_workers; i++) 
+    {
         total_time += worker_output_array[i].total_time;
         total_queries += worker_output_array[i].total_queries;
         min_time = fmin(min_time, worker_output_array[i].min_time);
@@ -252,9 +263,17 @@ int main(int argc, char* argv[])
     fprintf(stdout, 
         "Benchmark statistics (all times are in seconds):\n"
         "Total # of queries:           %10d\n"
-        "Total queries execution time: %10.3lf\n",
+        "Total queries execution time: %10.3lf\n"
+        "Minimum       execution time: %10.3lf\n"
+        "Maximum       execution time: %10.3lf\n"
+        "Average       execution time: %10.3lf\n"
+        "Median        execution time: %10.3lf\n",
         total_queries,
-        total_time
+        total_time,
+        min_time,
+        max_time,
+        avg_time,
+        median_time
     );
     
     return EXIT_SUCCESS;
@@ -264,14 +283,15 @@ void print_usage(char *prog_name)
 {
     fprintf(stderr, 
             "Benchmark SQL queries against hypertable with sample data\n"
-            "Usage: %s [-h] -n <num_workers> [-f <in_file>]\n"
+            "Usage: %s [-h] -n <num_workers> [-f <in_file>] [-v]\n"
             "Arguments:\n"
             "  -h -- print this screen\n"
             "  -n -- the number of worker threads between 1 and %d\n"
             "  -f -- the input CSV file name containing the queries' parameters.\n"
-            "        If omitted, standard input is assumed\n",
+            "        If omitted, standard input is assumed\n"
+            "  -v -- verbose; print some debug output\n",
             basename(prog_name), max_num_workers
-            );
+    );
 }
 
 void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
@@ -296,7 +316,8 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
     }
     // we'll just validate the number of fields here; 
     // the rest is deferred to postgres execution
-    if(field_no-1 != 3) {
+    if(field_no-1 != 3) 
+    {
         fprintf(
             stderr, "wrong number of fields %d in input line %d\n", 
             field_no, line_no
@@ -308,9 +329,27 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
 void *worker_func(void *arg)
 {
     int worker_no = *(int*)arg;
- printf("in %d\n", worker_no);   
+ 
+    // establish postgres connection for this worker
+    // modify this per your setup
+    // to avoid exposing password in the code, use the ~/.pgpass file
+    // I hardcoded the info per my setup, yours is probably different
+
+    const char *conn_info = "dbname=homework user=postgres password=postgres";
+    PGconn     *conn;
+
+    conn = PQconnectdb(conn_info);
+
+    if (PQstatus(conn) != CONNECTION_OK) 
+    {
+        fprintf(stderr, "connection to database failed: %s\n",
+            PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+
     // traverse through all query parameters
-    for(int i = 0; i < all_query_param_arrays[worker_no].size(); i++) {
+    for(int i = 0; i < all_query_param_arrays[worker_no].size(); i++) 
+    {
         // generate the query from this workers input parameters
         char query[2048];
         snprintf(query, sizeof(query), 
@@ -322,20 +361,21 @@ void *worker_func(void *arg)
             all_query_param_arrays[worker_no][i].start_time.c_str(),
             all_query_param_arrays[worker_no][i].end_time.c_str()
         );
-        fprintf(stderr, "from wkr %d: '%s'\n", worker_no, query);
-        
+        if(dbg)
+            fprintf(stderr, "from wkr %d: '%s'\n", worker_no, query);
+
         double min_time = 0, max_time = 0, total_time = 0;
         struct timespec query_start, query_end;
         clock_gettime(CLOCK_MONOTONIC, &query_start);
         
-        // execute the query
+        execute_query(conn, query);
         
         clock_gettime(CLOCK_MONOTONIC, &query_end);
         
         // query taken by the query, in seconds
         double query_time = (
-            pow((double)query_end.tv_sec, 9) + query_end.tv_nsec -
-            pow((double)query_start.tv_sec, 9) + query_start.tv_nsec
+            pow(10, 9) * query_end.tv_sec + query_end.tv_nsec - 
+            pow(10, 9) * query_start.tv_sec - query_start.tv_nsec
         ) / pow(10, 9);
         
         total_time += query_time;
@@ -348,7 +388,40 @@ void *worker_func(void *arg)
         worker_output_array[worker_no].total_time += query_time;
         worker_output_array[worker_no].min_time = min_time;
         worker_output_array[worker_no].max_time = max_time;
+
         // for median calculation on global level
         worker_output_array[worker_no].all_times.push_back(query_time);
     }
+    
+    PQfinish(conn);
+}
+
+void exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(EXIT_FAILURE);
+}
+
+void execute_query(PGconn *conn, const char *query)
+{
+    PGresult   *res;
+
+    res = PQexec(conn, query);
+    if (PQresultStatus(res) != PGRES_TUPLES_OK)
+    {
+        fprintf(stderr, "query failed.\nError: %s\nContent: '%s'\n", 
+            PQerrorMessage(conn), query);
+        PQclear(res);
+        exit_nicely(conn);
+    }
+    
+    if(dbg) {
+        fprintf(stderr, "bk=%s, host=%s, usage=%s\n", 
+                PQgetvalue(res, 0, 0),
+                PQgetvalue(res, 0, 1),
+                PQgetvalue(res, 0, 2)
+        );
+    }
+    
+    PQclear(res);
 }

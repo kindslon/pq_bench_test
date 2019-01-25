@@ -2,6 +2,8 @@
 
 This is the implementation of R&D assignment, benchmarking a set of queries against a hypertable containing series of CPU usage data.
 
+Before building, see the note regarding authentication in `pq_bench_test.cpp`, function `execute_query()`.
+
 To build, run `make -f build.mk` in the directory containing `pq_bench_test.cpp` and `build.mk`.
 
 This will build the the standalone utility `pq_bench_test`, which does all the job.
