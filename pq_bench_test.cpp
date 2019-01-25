@@ -28,13 +28,12 @@ struct QueryParam
     std::string end_time;
 };
 
-// such arrays will be passed to individual workers
+// variables of this type will be passed to individual workers
 // to be used to generate SQL queries
-
 typedef std::vector<QueryParam> QueryParamArray;
 
-// such array will be filled by input CSV parsing; indexed by worker number
-
+// such array will be filled by result of input CSV parsing; 
+// it is indexed by worker number
 typedef std::vector<QueryParamArray> AllQueryParamArrays;
 
 // final stats from individual worker
@@ -101,7 +100,6 @@ int main(int argc, char* argv[])
                 break;
             case 'n':
                 num_workers = strtol(optarg, NULL, 10);
-                fprintf(stderr, "errno=%d, num_workers=%d, max_num_workers=%d\n", errno, num_workers, max_num_workers);
                 if(errno > 0 || num_workers <= 0 || num_workers > max_num_workers)
                 {
                     print_usage(prog_name);
@@ -197,7 +195,11 @@ int main(int argc, char* argv[])
 
     // start the workers
     
-    num_workers = all_query_param_arrays.size();
+    if( (num_workers = all_query_param_arrays.size()) == 0)
+    {
+        fprintf(stderr, "no input CSV content, exiting\n");
+        return EXIT_SUCCESS;
+   }
     
     struct ThreadElem
     {
@@ -263,11 +265,11 @@ int main(int argc, char* argv[])
     fprintf(stdout, 
         "Benchmark statistics (all times are in seconds):\n"
         "Total # of queries:           %10d\n"
-        "Total queries execution time: %10.3lf\n"
-        "Minimum       execution time: %10.3lf\n"
-        "Maximum       execution time: %10.3lf\n"
-        "Average       execution time: %10.3lf\n"
-        "Median        execution time: %10.3lf\n",
+        "Total queries execution time: %10.5lf\n"
+        "Minimum       execution time: %10.5lf\n"
+        "Maximum       execution time: %10.5lf\n"
+        "Average       execution time: %10.5lf\n"
+        "Median        execution time: %10.5lf\n",
         total_queries,
         total_time,
         min_time,
@@ -297,7 +299,7 @@ void print_usage(char *prog_name)
 void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
 {
     const char* tok;
-    int field_no = 1; // we'll expect 3 fields
+    int field_no = 0; // we'll expect 3 fields
     
     // we don't care to duplicate the line before strtok() call, 
     // it'll be no longer needed
@@ -308,18 +310,18 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
     {
         switch(field_no) 
         {
-            case 1: query_param.host       = tok; break;
-            case 2: query_param.start_time = tok; break;
-            case 3: query_param.end_time   = tok; break;
+            case 0: query_param.host       = tok; break;
+            case 1: query_param.start_time = tok; break;
+            case 2: query_param.end_time   = tok; break;
             default: break; 
         }
     }
     // we'll just validate the number of fields here; 
     // the rest is deferred to postgres execution
-    if(field_no-1 != 3) 
+    if(field_no != 3) 
     {
         fprintf(
-            stderr, "wrong number of fields %d in input line %d\n", 
+            stderr, "wrong number of fields: %d in input line %d\n", 
             field_no, line_no
         );
         exit(EXIT_FAILURE);
@@ -416,7 +418,8 @@ void execute_query(PGconn *conn, const char *query)
     }
     
     if(dbg) {
-        fprintf(stderr, "bk=%s, host=%s, usage=%s\n", 
+        fprintf(stderr, "rows: %d, 1st row: bucket=%s, min=%s, max=%s\n",
+                PQntuples(res),
                 PQgetvalue(res, 0, 0),
                 PQgetvalue(res, 0, 1),
                 PQgetvalue(res, 0, 2)
