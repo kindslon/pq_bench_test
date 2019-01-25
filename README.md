@@ -7,3 +7,5 @@ To build, run `make` in the directory containing `pq_bench_test.cpp` and `Makefi
 It is assumed that you have the environment setup as described in the assignment description.
 
 Run `./pq_bench_test -h` to see the usage.
+
+Any questions can be sent to Igor Kouznetsov at [mailto:kindslon@gmail.com]
