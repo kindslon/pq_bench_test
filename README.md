@@ -4,8 +4,10 @@ This is the implementation of R&D assignment, benchmarking a set of queries agai
 
 To build, run `make -f build.mk` in the directory containing `pq_bench_test.cpp` and `build.mk`.
 
-It is assumed that you have the environment setup as described in the assignment description.
+This will build the the standalone utility `pq_bench_test`, which does all the job.
 
-Run `./pq_bench_test -h` to see the usage.
+It is assumed that you have the test environment setup as per the assignment description.
+
+Run `./pq_bench_test -h` to see the usage, which is self-explanatory.
 
 Any questions can be sent to Igor Kouznetsov at [mailto:kindslon@gmail.com]
