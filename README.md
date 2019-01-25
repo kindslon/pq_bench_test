@@ -2,7 +2,7 @@
 
 This is the implementation of R&D assignment, benchmarking a set of queries against a hypertable containing series of CPU usage data.
 
-Before building, see the note regarding authentication in `pq_bench_test.cpp`, function `execute_query()`.
+Before building, see the note regarding authentication while establishing Postgres connection in `pq_bench_test.cpp`, function `worker_func()`.
 
 To build, run `make -f build.mk` in the directory containing `pq_bench_test.cpp` and `build.mk`.
 
