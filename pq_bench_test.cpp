@@ -1,8 +1,4 @@
 /*
- select time_bucket('1 minute', ts), sum(usage) 
- from cpu_usage 
- where ts between '2017-01-01 00:00:00' and '2017-01-01 00:59:00' 
- group by 1 order by 1 limit 200;
  * 
  * pg_config --includedir
  * /usr/lib/x86_64-linux-gnu/
@@ -15,9 +11,12 @@
 #include <unistd.h>
 #include <libgen.h>
 #include <pthread.h>
+#include <time.h>
+#include <math.h>
 #include <vector>
 #include <map>
 #include <string>
+#include <algorithm>
 
 #include <libpq-fe.h>
 
@@ -46,10 +45,12 @@ typedef std::vector<QueryParamArray> AllQueryParamArrays;
 // final stats from individual worker
 struct WorkerOutput 
 {
+    WorkerOutput(): total_queries(0), total_time(0), min_time(0), max_time(0) {}
     double total_queries;
     double total_time;
     double min_time;
     double max_time;
+    std::vector<double> all_times;
 };
 
 // each worker will write its stats to according element in this array
@@ -173,8 +174,11 @@ int main(int argc, char* argv[])
         
         // if such slot doesn't exist, create new empty one
         if(slot+1 > all_query_param_arrays.size()){
-            QueryParamArray query_param_array;
-            all_query_param_arrays.push_back(query_param_array);
+            //QueryParamArray query_param_array;
+            all_query_param_arrays.push_back(QueryParamArray());
+            //all_query_param_arrays.push_back(query_param_array);
+            //WorkerOutput 
+            worker_output_array.push_back(WorkerOutput());
         }
         all_query_param_arrays[slot].push_back(query_param);
         
@@ -187,23 +191,71 @@ int main(int argc, char* argv[])
     // start the workers
     
     num_workers = all_query_param_arrays.size();
-    std::vector<pthread_t> threads_array;
     
-    for (int i = 0; i < num_workers; ++i) {
-        pthread_t thr;
-        threads_array.push_back(thr);
+    struct ThreadElem
+    {
+        pthread_t thread;
+        int worker_no;
+    };
+    std::vector<ThreadElem> threads_array;
+
+    for (int i = 0; i < num_workers; i++) {
+        //pthread_t thr;
+        threads_array.push_back({pthread_t(), i});
         int rc = 0;
-        if ( (rc = pthread_create(&threads_array[i], NULL, worker_func, (void*)&i)) ) {
+        if ( (rc = pthread_create(&threads_array[i].thread, NULL, worker_func, (void*)&threads_array[i].worker_no)) ) {
             fprintf(stderr, "failed to create thread num %d, rc: %d\n", i, rc);
             return EXIT_FAILURE;
         }
     }
         
-      /* wait for all workers to complete */
-    for (int i = 0; i < num_workers; ++i) {
-        pthread_join(threads_array[i], NULL);
+    /* wait for all workers to complete */
+    for (int i = 0; i < num_workers; i++) {
+        pthread_join(threads_array[i].thread, NULL);
     }
     
+    // calculate the final stats
+    
+    int total_queries = 0;
+    double 
+      total_time  = 0, 
+      min_time    = 0, 
+      max_time    = 0, 
+      avg_time    = 0, 
+      median_time = 0;
+
+    // combines all query times from all workers, to get the median
+    std::vector<double> all_times; 
+    
+    for(int i = 0; i < num_workers; i++) {
+        total_time += worker_output_array[i].total_time;
+        total_queries += worker_output_array[i].total_queries;
+        min_time = fmin(min_time, worker_output_array[i].min_time);
+        max_time = fmax(max_time, worker_output_array[i].max_time);
+        all_times.insert(
+            all_times.end(), 
+            worker_output_array[i].all_times.begin(), 
+            worker_output_array[i].all_times.end()
+        );
+    }
+    avg_time = total_time / total_queries;
+    
+    // get the median time
+    std::sort(all_times.begin(), all_times.end());
+    
+    size_t half = all_times.size() / 2;
+    if(all_times.size() % 2) 
+        median_time = (all_times[half] + all_times[half +1]) / 2;
+    else 
+        median_time = all_times[half];
+    
+    fprintf(stdout, 
+        "Benchmark statistics (all times are in seconds):\n"
+        "Total # of queries:           %10d\n"
+        "Total queries execution time: %10.3lf\n",
+        total_queries,
+        total_time
+    );
     
     return EXIT_SUCCESS;
 }
@@ -256,5 +308,47 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
 void *worker_func(void *arg)
 {
     int worker_no = *(int*)arg;
-    
+ printf("in %d\n", worker_no);   
+    // traverse through all query parameters
+    for(int i = 0; i < all_query_param_arrays[worker_no].size(); i++) {
+        // generate the query from this workers input parameters
+        char query[2048];
+        snprintf(query, sizeof(query), 
+            "SELECT time_bucket('1 minute', ts), MIN(usage), MAX(usage) "
+            "FROM cpu_usage "
+            "WHERE host='%s' AND ts BETWEEN '%s' AND '%s' "
+            "GROUP BY 1",
+            all_query_param_arrays[worker_no][i].host.c_str(),
+            all_query_param_arrays[worker_no][i].start_time.c_str(),
+            all_query_param_arrays[worker_no][i].end_time.c_str()
+        );
+        fprintf(stderr, "from wkr %d: '%s'\n", worker_no, query);
+        
+        double min_time = 0, max_time = 0, total_time = 0;
+        struct timespec query_start, query_end;
+        clock_gettime(CLOCK_MONOTONIC, &query_start);
+        
+        // execute the query
+        
+        clock_gettime(CLOCK_MONOTONIC, &query_end);
+        
+        // query taken by the query, in seconds
+        double query_time = (
+            pow((double)query_end.tv_sec, 9) + query_end.tv_nsec -
+            pow((double)query_start.tv_sec, 9) + query_start.tv_nsec
+        ) / pow(10, 9);
+        
+        total_time += query_time;
+        min_time = fmin(min_time, query_time);
+        max_time = fmax(max_time, query_time);
+        
+        // populate the global output area -- no synchronization needed
+        
+        worker_output_array[worker_no].total_queries++;
+        worker_output_array[worker_no].total_time += query_time;
+        worker_output_array[worker_no].min_time = min_time;
+        worker_output_array[worker_no].max_time = max_time;
+        // for median calculation on global level
+        worker_output_array[worker_no].all_times.push_back(query_time);
+    }
 }
