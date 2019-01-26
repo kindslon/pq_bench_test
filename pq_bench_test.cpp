@@ -12,7 +12,7 @@
 #include <string>
 #include <algorithm>
 
-#include <libpq-fe.h>
+#include <libpq-fe.h> 
 
 // max allowed number of workers; set as deemed reasonable
 const int max_num_workers = 50;
@@ -337,7 +337,14 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
 void *worker_func(void *arg)
 {
     int worker_no = *(int*)arg;
- 
+
+    int total_queries = 0;
+    double 
+        min_time   = 0, 
+        max_time   = 0, 
+        total_time = 0;
+        std::vector<double> all_times;
+
     // establish postgres connection for this worker
     // modify this per your setup
     // to avoid exposing password in the code, use the ~/.pgpass file
@@ -372,12 +379,10 @@ void *worker_func(void *arg)
         if(dbg)
             fprintf(stderr, "from wkr %d: '%s'\n", worker_no, query);
 
-        double min_time = 0, max_time = 0, total_time = 0;
+        // execute the query, measuring execution time
         struct timespec query_start, query_end;
         clock_gettime(CLOCK_MONOTONIC, &query_start);
-        
         execute_query(conn, query);
-        
         clock_gettime(CLOCK_MONOTONIC, &query_end);
         
         // query taken by the query, in seconds
@@ -386,22 +391,23 @@ void *worker_func(void *arg)
             pow(10, 9) * query_start.tv_sec - query_start.tv_nsec
         ) / pow(10, 9);
         
+        total_queries++;
         total_time += query_time;
         min_time = fmin(min_time, query_time);
         max_time = fmax(max_time, query_time);
         
-        // populate the global output area -- no synchronization needed
-        
-        worker_output_array[worker_no].total_queries++;
-        worker_output_array[worker_no].total_time += query_time;
-        worker_output_array[worker_no].min_time = min_time;
-        worker_output_array[worker_no].max_time = max_time;
-
         // for median calculation on global level
-        worker_output_array[worker_no].all_times.push_back(query_time);
+        all_times.push_back(query_time);
     }
     
     PQfinish(conn);
+
+    // populate the global output area -- no synchronization needed
+    worker_output_array[worker_no].total_queries = total_queries;
+    worker_output_array[worker_no].total_time    = total_time;
+    worker_output_array[worker_no].min_time      = min_time;
+    worker_output_array[worker_no].max_time      = max_time;
+    worker_output_array[worker_no].all_times     = all_times;
 }
 
 void exit_gracefully(PGconn *conn)
