@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
                 in_file = fopen(optarg, "r");
                 if(in_file == NULL) 
                 {
-                    fprintf(stderr, "cannot open input file %s (errno=%d)\n", optarg, errno);
+                    fprintf(stderr, "error: cannot open input file %s (errno=%d)\n", optarg, errno);
                     exit(EXIT_FAILURE);
                 }
                 break;
@@ -103,17 +103,17 @@ int main(int argc, char* argv[])
                 if(errno > 0 || num_workers <= 0 || num_workers > max_num_workers)
                 {
                     print_usage(prog_name);
-                    fprintf(stderr, "invalid value for argument -n: %s\n", optarg);
+                    fprintf(stderr, "error: invalid value for argument -n: %s\n", optarg);
                     exit(EXIT_FAILURE);
                 }
                 break;
             case ':':  
                 print_usage(prog_name);
-                fprintf(stderr, "option %s needs a value\n", argv[optind-1]); 
+                fprintf(stderr, "error: option %s needs a value\n", argv[optind-1]); 
                 exit(EXIT_FAILURE);  
             case '?':  
                 print_usage(prog_name);
-                fprintf(stderr, "unknown option: %c\n", optopt); 
+                fprintf(stderr, "error: unknown option: %c\n", optopt); 
                 exit(EXIT_FAILURE);
         }  
     }  
@@ -121,19 +121,21 @@ int main(int argc, char* argv[])
     if(optind < argc)
     {  
         print_usage(prog_name);
-        fprintf(stderr, "unexpected argument: %s\n", argv[optind]);  
+        fprintf(stderr, "error: unexpected argument: %s\n", argv[optind]);  
+        exit(EXIT_FAILURE);
     }
     
     if(num_workers == 0) 
     {
         print_usage(prog_name);
-        fprintf(stderr, "missing mandatory argument -n <num_workers>\n");
+        fprintf(stderr, "error: missing mandatory argument -n <num_workers>\n");
         exit(EXIT_FAILURE);
     }
 
     
     // now parse the input into internal representation 
-    // ready to be fed to workers
+    // ready to be fed to workers, and assign hosts to workers,
+    // making sure each host's data is processed by the same worker
     
     HostWorkerMap host_worker_map;
     
@@ -152,8 +154,9 @@ int main(int argc, char* argv[])
         HostWorkerMap:: const_iterator iter = 
             host_worker_map.find(query_param.host);
         
-        // if this host is already assigned to a worker, add this element to
-        // this worker's query parameters, otherwise determine slot for new host
+        // if this host is already assigned to a worker, just add this element 
+        // to this worker's query parameters, otherwise first determine slot for 
+        // the new host 
         int slot;
         if(iter != host_worker_map.end())
             slot = iter->second;
@@ -163,7 +166,7 @@ int main(int argc, char* argv[])
             slot = (next_worker_no < num_workers) ?
                 next_worker_no : 0;
             
-            // advance the pointer to next slot or reset if reached max
+            // advance the pointer to next slot or reset to 0 if reached max
             if(next_worker_no+1 < num_workers)
                 next_worker_no++;
             else
@@ -174,13 +177,14 @@ int main(int argc, char* argv[])
         
         if(dbg) 
         {
-            fprintf(stderr, "adding to slot %d: %s, %s, %s\n",
+            fprintf(stderr, "debug: adding to slot %d: %s, %s, %s\n",
                 slot, query_param.host.c_str(), 
                 query_param.start_time.c_str(), query_param.end_time.c_str()
             );
         }
         
-        // if such slot doesn't exist, create new empty one
+        // if such slot doesn't exist in input/output working areas, 
+        // create new empty one in both arrays.
         if(slot+1 > all_query_param_arrays.size())
         {
             all_query_param_arrays.push_back(QueryParamArray());
@@ -194,11 +198,11 @@ int main(int argc, char* argv[])
     if(in_file != stdin)
         fclose(in_file);
 
-    // start the workers
+    // if we have work to do, start the workers
     
     if( (num_workers = all_query_param_arrays.size()) == 0)
     {
-        fprintf(stderr, "no input CSV content, exiting\n");
+        fprintf(stderr, "info: no input CSV content, exiting\n");
         return EXIT_SUCCESS;
    }
     
@@ -220,7 +224,9 @@ int main(int argc, char* argv[])
                 (void*)&threads_array[i].worker_no)) 
             ) 
         {
-            fprintf(stderr, "failed to create thread num %d, rc: %d\n", i, rc);
+            fprintf(stderr, 
+                "error: failed to create thread num %d, error code=%d\n", i, rc
+            );
             return EXIT_FAILURE;
         }
     }
@@ -327,7 +333,7 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
     if(field_no != 3) 
     {
         fprintf(
-            stderr, "wrong number of fields: %d in input line %d\n", 
+            stderr, "error: wrong number of fields: %d in input line %d\n", 
             field_no, line_no
         );
         exit(EXIT_FAILURE);
@@ -357,8 +363,10 @@ void *worker_func(void *arg)
 
     if (PQstatus(conn) != CONNECTION_OK) 
     {
-        fprintf(stderr, "connection to database failed: %s\n",
-            PQerrorMessage(conn));
+        fprintf(stderr, 
+            "error: connection to database failed, error message: %s\n",
+            PQerrorMessage(conn)
+        );
         exit_gracefully(conn);
     }
 
@@ -377,7 +385,7 @@ void *worker_func(void *arg)
             all_query_param_arrays[worker_no][i].end_time.c_str()
         );
         if(dbg)
-            fprintf(stderr, "from wkr %d: '%s'\n", worker_no, query);
+            fprintf(stderr, "debug: from wkr %d: '%s'\n", worker_no, query);
 
         // execute the query, measuring execution time
         struct timespec query_start, query_end;
@@ -423,8 +431,10 @@ void execute_query(PGconn *conn, const char *query)
     res = PQexec(conn, query);
     if (PQresultStatus(res) != PGRES_TUPLES_OK)
     {
-        fprintf(stderr, "query failed.\nError: %s\nContent: '%s'\n", 
-            PQerrorMessage(conn), query);
+        fprintf(stderr, 
+            "error: query failed.\nError message: %s\nQuery: \"%s\"\n", 
+            PQerrorMessage(conn), query
+        );
         PQclear(res);
         exit_gracefully(conn);
     }
