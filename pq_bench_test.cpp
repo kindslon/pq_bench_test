@@ -59,6 +59,7 @@ struct WorkerOutput
 typedef std::vector<WorkerOutput> WorkerOutputArray;
 
 // forward declarations
+void verror (const char * format, ...);
 void print_usage(char *prog_name);
 void parse_query_param_line(char *line, int line_no, QueryParam &param);
 void *worker_func(void *arg);
@@ -101,7 +102,7 @@ int main(int argc, char* argv[])
                 in_file = fopen(optarg, "r");
                 if(in_file == NULL) 
                 {
-                    fprintf(stderr, "error: cannot open input file %s (errno=%d)\n", optarg, errno);
+                    verror("cannot open input file %s (errno=%d)", optarg, errno);
                     exit(EXIT_FAILURE);
                 }
                 break;
@@ -110,17 +111,17 @@ int main(int argc, char* argv[])
                 if(errno > 0 || num_workers <= 0 || num_workers > max_num_workers)
                 {
                     print_usage(prog_name);
-                    fprintf(stderr, "error: invalid value for argument -n: %s\n", optarg);
+                    verror("invalid value for argument -n: %s", optarg);
                     exit(EXIT_FAILURE);
                 }
                 break;
             case ':':  
                 print_usage(prog_name);
-                fprintf(stderr, "error: option %s needs a value\n", argv[optind-1]); 
+                verror("option %s needs a value", argv[optind-1]); 
                 exit(EXIT_FAILURE);  
             case '?':  
                 print_usage(prog_name);
-                fprintf(stderr, "error: unknown option: %c\n", optopt); 
+                verror("unknown option: %c", optopt); 
                 exit(EXIT_FAILURE);
         }  
     }  
@@ -128,14 +129,14 @@ int main(int argc, char* argv[])
     if(optind < argc)
     {  
         print_usage(prog_name);
-        fprintf(stderr, "error: unexpected argument: %s\n", argv[optind]);  
+        verror("unexpected argument: %s", argv[optind]);  
         exit(EXIT_FAILURE);
     }
     
     if(num_workers == 0) 
     {
         print_usage(prog_name);
-        fprintf(stderr, "error: missing mandatory argument -n <num_workers>\n");
+        verror("missing mandatory argument -n <num_workers>");
         exit(EXIT_FAILURE);
     }
 
@@ -185,8 +186,10 @@ int main(int argc, char* argv[])
         if(dbg) 
         {
             fprintf(stderr, "debug: adding to slot %d: %s, %s, %s\n",
-                slot, query_param.host.c_str(), 
-                query_param.start_time.c_str(), query_param.end_time.c_str()
+                slot, 
+                query_param.host.c_str(), 
+                query_param.start_time.c_str(), 
+                query_param.end_time.c_str()
             );
         }
         
@@ -299,6 +302,16 @@ int main(int argc, char* argv[])
     );
     
     return EXIT_SUCCESS;
+}
+
+void verror (const char * format, ...)
+{
+  fprintf(stderr, "error: ");
+  va_list args;
+  va_start (args, format);
+  vfprintf (stderr, format, args);
+  va_end (args);
+  fputc('\n', stderr);
 }
 
 void print_usage(char *prog_name)
