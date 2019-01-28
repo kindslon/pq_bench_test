@@ -16,12 +16,18 @@ Run `./pq_bench_test -h` to see the usage, which is self-explanatory.
 
 ```
 Note:
-The package also contains a simple functionality test of the utility: 
-`test_test.sh`, which does a bunch of assertions 
+-----
 
-Note that it is prone to changes of the program's output, 
+The package also contains a simple functionality test of the utility: 
+`test_test.sh`, which does a bunch of assertions.
+
+Since this script examines the output of the utility under different conditions 
+it is called, it is prone to changes of the program's output, 
 so if you do change the output, make sure you change this 
 script accordingly.
+
+It currently doesn't take any command line arguments.
+
 To see if this script is working properly, you can 
 modify it to e.g. inverse some assertion, comment out the
 output filtering/suppression to see the actual output, etc.  
