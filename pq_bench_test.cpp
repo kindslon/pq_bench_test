@@ -283,12 +283,13 @@ int main(int argc, char* argv[])
     
     fprintf(stdout, 
         "Benchmark statistics (all times are in seconds with ns granularity):\n"
-        "Total # of queries:           %15d\n"
-        "Total queries execution time: %15.9lf\n"
-        "Minimum       execution time: %15.9lf\n"
-        "Maximum       execution time: %15.9lf\n"
-        "Average       execution time: %15.9lf\n"
-        "Median        execution time: %15.9lf\n",
+        "Total # of queries: %15d\n"
+        "Query execution times:\n"
+        "Total:              %15.9lf\n"
+        "Minimum:            %15.9lf\n"
+        "Maximum:            %15.9lf\n"
+        "Average:            %15.9lf\n"
+        "Median:             %15.9lf\n",
         total_queries,
         total_time,
         min_time,
