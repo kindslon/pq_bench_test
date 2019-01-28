@@ -14,4 +14,17 @@ It is assumed that you have the test environment setup as per the assignment des
 
 Run `./pq_bench_test -h` to see the usage, which is self-explanatory.
 
-Any questions can be sent to Igor Kouznetsov at [mailto:kindslon@gmail.com]
+```
+Note:
+The package also contains a simple functionality test of the utility: 
+`test_test.sh`, which does a bunch of assertions 
+
+Note that it is prone to changes of the program's output, 
+so if you do change the output, make sure you change this 
+script accordingly.
+To see if this script is working properly, you can 
+modify it to e.g. inverse some assertion, comment out the
+output filtering/suppression to see the actual output, etc.  
+```
+
+Any questions/suggestions can be sent to Igor Kouznetsov at [mailto:kindslon@gmail.com]

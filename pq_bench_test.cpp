@@ -1,6 +1,13 @@
+/*
+ * Implementation of R&D assignment, benchmarking a set of queries against a 
+ * hypertable containing series of CPU usage data
+ * Author: Igor Kouznetsov
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <errno.h>
 #include <unistd.h>
 #include <libgen.h>
@@ -275,13 +282,13 @@ int main(int argc, char* argv[])
         median_time = all_times[half];
     
     fprintf(stdout, 
-        "Benchmark statistics (all times are in seconds):\n"
-        "Total # of queries:           %10d\n"
-        "Total queries execution time: %10.5lf\n"
-        "Minimum       execution time: %10.5lf\n"
-        "Maximum       execution time: %10.5lf\n"
-        "Average       execution time: %10.5lf\n"
-        "Median        execution time: %10.5lf\n",
+        "Benchmark statistics (all times are in seconds with ns granularity):\n"
+        "Total # of queries:           %11d\n"
+        "Total queries execution time: %10.9lf\n"
+        "Minimum       execution time: %10.9lf\n"
+        "Maximum       execution time: %10.9lf\n"
+        "Average       execution time: %10.9lf\n"
+        "Median        execution time: %10.9lf\n",
         total_queries,
         total_time,
         min_time,
