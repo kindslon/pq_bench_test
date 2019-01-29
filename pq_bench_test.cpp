@@ -59,7 +59,7 @@ struct WorkerOutput
 typedef std::vector<WorkerOutput> WorkerOutputArray;
 
 // forward declarations
-void verror (const char * format, ...);
+void error_out(const char * format, ...);
 void print_usage(char *prog_name);
 void parse_query_param_line(char *line, int line_no, QueryParam &param);
 void *worker_func(void *arg);
@@ -102,8 +102,7 @@ int main(int argc, char* argv[])
                 in_file = fopen(optarg, "r");
                 if(in_file == NULL) 
                 {
-                    verror("cannot open input file %s (errno=%d)", optarg, errno);
-                    exit(EXIT_FAILURE);
+                    error_out("cannot open input file %s (errno=%d)", optarg, errno);
                 }
                 break;
             case 'n':
@@ -111,33 +110,28 @@ int main(int argc, char* argv[])
                 if(errno > 0 || num_workers <= 0 || num_workers > max_num_workers)
                 {
                     print_usage(prog_name);
-                    verror("invalid value for argument -n: %s", optarg);
-                    exit(EXIT_FAILURE);
+                    error_out("invalid value for argument -n: %s", optarg);
                 }
                 break;
             case ':':  
                 print_usage(prog_name);
-                verror("option %s needs a value", argv[optind-1]); 
-                exit(EXIT_FAILURE);  
+                error_out("option %s needs a value", argv[optind-1]); 
             case '?':  
                 print_usage(prog_name);
-                verror("unknown option: %c", optopt); 
-                exit(EXIT_FAILURE);
+                error_out("unknown option: %c", optopt); 
         }  
     }  
       
     if(optind < argc)
     {  
         print_usage(prog_name);
-        verror("unexpected argument: %s", argv[optind]);  
-        exit(EXIT_FAILURE);
+        error_out("unexpected argument: %s", argv[optind]);  
     }
     
     if(num_workers == 0) 
     {
         print_usage(prog_name);
-        verror("missing mandatory argument -n <num_workers>");
-        exit(EXIT_FAILURE);
+        error_out("missing mandatory argument -n <num_workers>");
     }
 
     
@@ -234,10 +228,7 @@ int main(int argc, char* argv[])
                 (void*)&threads_array[i].worker_no)) 
             ) 
         {
-            fprintf(stderr, 
-                "error: failed to create thread num %d, error code=%d\n", i, rc
-            );
-            return EXIT_FAILURE;
+            error_out("failed to create thread num %d, error code=%d", i, rc);
         }
     }
         
@@ -304,14 +295,15 @@ int main(int argc, char* argv[])
     return EXIT_SUCCESS;
 }
 
-void verror (const char * format, ...)
+void error_out(const char * format, ...)
 {
-  fprintf(stderr, "error: ");
-  va_list args;
-  va_start (args, format);
-  vfprintf (stderr, format, args);
-  va_end (args);
-  fputc('\n', stderr);
+    fprintf(stderr, "error: ");
+    va_list args;
+    va_start (args, format);
+    vfprintf(stderr, format, args);
+    va_end (args);
+    fputc('\n', stderr);
+    exit(EXIT_FAILURE);
 }
 
 void print_usage(char *prog_name)
@@ -352,13 +344,7 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
     // we'll just validate the number of fields here; 
     // the rest is deferred to postgres execution
     if(field_no != 3) 
-    {
-        fprintf(
-            stderr, "error: wrong number of fields: %d in input line %d\n", 
-            field_no, line_no
-        );
-        exit(EXIT_FAILURE);
-    }
+        error_out("wrong number of fields: %d in input line %d", field_no, line_no);
 }
 
 void *worker_func(void *arg)
