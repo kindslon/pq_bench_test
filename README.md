@@ -30,13 +30,13 @@ or, to see some debug output:
 Note:
 -----
 
-The package also contains a simple functionality test of the utility: 
-`test_test.sh`, which does a bunch of assertions.
+The package also contains a simple script that tests the utilies's 
+functionality: test_test.sh. Basically, it does a bunch of assertions.
 
-Since this script examines the output of the utility under different conditions 
-it is called, it is prone to changes of the program's output, 
-so if you do change the output, make sure you change this 
-script accordingly.
+Be advised though that since this script examines the output of the utility 
+nder different conditions it is called, it is prone to changes of the program's 
+output, so if you do change the output, make sure you change this script 
+accordingly.
 
 It currently doesn't take any command line arguments.
 
