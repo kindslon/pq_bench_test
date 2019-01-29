@@ -24,8 +24,8 @@ function main()
 }
 
 # simple assertion; you can pass a command to execute,
-# or a a test condition, it will be evaluated, and if
-# return code is non_zero, the test prints the evaluated 
+# or a a test condition. It will be evaluated, and if
+# return code is non-zero, the test prints the evaluated 
 # expression with the location of the assertion, and exits 
 function assert
 {
@@ -45,6 +45,8 @@ function test_help_screen
     echo OK
 }
 
+# here we deliberately employ various wrong usage of command line arguments
+# to see if the program reacts properly 
 function test_invalid_args
 {
     printf "check if invalid program arguments are detected... "
@@ -65,16 +67,17 @@ function test_invalid_args
     echo OK
 }
 
+# we do the check by providing input valid enough to just pass the CSV parsing,
+# so the DB connection is attempted, and we see if it's successful
 function check_db_connection
 {
-    # we do that by providing input that passes CSV parsing
-    # so the DB connection is attempted 
     printf "check the db connection... "
     printf "\n1,2,3" | ./pq_bench_test -n 1 2>&1 | grep "connection to database failed" >/dev/null
     assert "[ $? != 0 ]"
     echo OK
 }
 
+# no data in our case is good enough data to not exit with error
 function test_empty_input
 {
     printf "check if exiting gracefully on empty CSV input... "
@@ -83,6 +86,8 @@ function test_empty_input
     echo OK
 }
 
+# we already checked that the db connection works; 
+# now we'll see if we fail by Postgres on syntax error, as expected
 function test_invalid_input
 {
     printf "check if syntactically invalid CSV input is detected... "
@@ -91,6 +96,7 @@ function test_invalid_input
     echo OK
 }
 
+# we expect each CSV row to contain 3 fields. Less or more should generate error
 function test_invalid_fields_number
 {
     printf "check if wrong number of fields in CSV input is detected... "
@@ -101,6 +107,8 @@ function test_invalid_fields_number
     echo OK
 }
 
+# and, of course, if we supply valid input, we expect to see final stats,
+# for example, correct number total # of queries as per the input (here, 2)
 function test_valid_input
 {
     printf "check if valid CSV processed successfully... "
