@@ -14,6 +14,18 @@ It is assumed that you have the test environment setup as per the assignment des
 
 Run `./pq_bench_test -h` to see the usage, which is self-explanatory.
 
+Example of execution:
+
+```
+./pq_bench_test -n 5 -f data_path/query_params.csv
+```
+
+or, to see some debug output:
+
+```
+./pq_bench_test -n 5 -f data_path/query_params.csv -v
+```
+
 ```
 Note:
 -----
