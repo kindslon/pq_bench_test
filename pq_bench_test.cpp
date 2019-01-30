@@ -43,6 +43,14 @@ typedef std::vector<QueryParam> QueryParamArray;
 // it is indexed by worker number
 typedef std::vector<QueryParamArray> AllQueryParamArrays;
 
+// structure to pass to worker function
+struct ThreadElem
+{
+    pthread_t thread;
+    int worker_no;
+};
+
+
 // final stats from individual worker
 struct WorkerOutput 
 {
@@ -174,7 +182,8 @@ int main(int argc, char* argv[])
             else
                 next_worker_no = 0;
 
-            host_worker_map.insert({query_param.host, slot});
+            HostWorkerMap::value_type hw_pair(query_param.host, slot);
+            host_worker_map.insert(hw_pair);
         }
         
         if(dbg) 
@@ -210,16 +219,12 @@ int main(int argc, char* argv[])
         return EXIT_SUCCESS;
    }
     
-    struct ThreadElem
-    {
-        pthread_t thread;
-        int worker_no;
-    };
     std::vector<ThreadElem> threads_array;
 
     for (int i = 0; i < num_workers; i++) 
     {
-        threads_array.push_back({pthread_t(), i});
+        ThreadElem thread_elem = {pthread_t(), i};
+        threads_array.push_back(thread_elem);
         int rc = 0;
         if ( (rc = pthread_create(
                 &threads_array[i].thread, 
