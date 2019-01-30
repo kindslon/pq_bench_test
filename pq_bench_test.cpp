@@ -369,7 +369,7 @@ void *worker_func(void *arg)
     // I hardcoded the info per my setup, yours is probably different
 
     int conn_info_line_no = __LINE__ + 1;
-    const char *conn_info = "dbname=homework user=postgres password=postgress";
+    const char *conn_info = "dbname=homework user=postgres password=postgres";
     PGconn     *conn;
 
     conn = PQconnectdb(conn_info);
