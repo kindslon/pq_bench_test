@@ -368,7 +368,8 @@ void *worker_func(void *arg)
     // to avoid exposing password in the code, use the ~/.pgpass file
     // I hardcoded the info per my setup, yours is probably different
 
-    const char *conn_info = "dbname=homework user=postgres password=postgres";
+    int conn_info_line_no = __LINE__ + 1;
+    const char *conn_info = "dbname=homework user=postgres password=postgress";
     PGconn     *conn;
 
     conn = PQconnectdb(conn_info);
@@ -378,6 +379,11 @@ void *worker_func(void *arg)
         fprintf(stderr, 
             "error: connection to database failed, error message: %s\n",
             PQerrorMessage(conn)
+        );
+        fprintf(
+            stderr, "Hint: check connection string at %s:%d\n", 
+            __FILE__, 
+            conn_info_line_no
         );
         exit_gracefully(conn);
     }
