@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <math.h>
+#include <float.h>
 #include <vector>
 #include <map>
 #include <string>
@@ -249,7 +250,7 @@ int main(int argc, char* argv[])
     int total_queries = 0;
     double 
       total_time  = 0, 
-      min_time    = 0, 
+      min_time    = DBL_MAX, 
       max_time    = 0, 
       avg_time    = 0, 
       median_time = 0;
@@ -358,7 +359,7 @@ void *worker_func(void *arg)
 
     int total_queries = 0;
     double 
-        min_time   = 0, 
+        min_time   = DBL_MAX, 
         max_time   = 0, 
         total_time = 0;
         std::vector<double> all_times;
