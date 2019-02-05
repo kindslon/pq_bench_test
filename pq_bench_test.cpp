@@ -26,9 +26,7 @@
 const int max_num_workers = 50;
 int dbg = 0; // if 1, some debug info is printed
 
-// host => worker assignment
-typedef std::map<std::string, int> HostWorkerMap;
-
+// result of input CSV line parsing
 struct QueryParam
 {
     std::string host;
@@ -40,17 +38,14 @@ struct QueryParam
 // to be used to generate SQL queries
 typedef std::vector<QueryParam> QueryParamArray;
 
-// such array will be filled by result of input CSV parsing; 
-// it is indexed by worker number
-typedef std::vector<QueryParamArray> AllQueryParamArrays;
-
 // structure to pass to worker function
-struct ThreadElem
+struct WorkerInfo
 {
+    WorkerInfo(): worker_slot(-1), query_param_array_p(NULL) {}
     pthread_t thread;
-    int worker_no;
+    int worker_slot; // if -1, slot is not in use
+    QueryParamArray *query_param_array_p; // for faster reference in worker func
 };
-
 
 // final stats from individual worker
 struct WorkerOutput 
@@ -63,25 +58,21 @@ struct WorkerOutput
     std::vector<double> all_times;
 };
 
-// each worker will write its stats to according element in this array
-// (the index is the worker number)
-typedef std::vector<WorkerOutput> WorkerOutputArray;
-
 // forward declarations
-void error_out(const char * format, ...);
+void error_out(const char *format, ...);
 void print_usage(char *prog_name);
 void parse_query_param_line(char *line, int line_no, QueryParam &param);
 void *worker_func(void *arg);
 void exit_gracefully(PGconn *conn);
 void execute_query(PGconn *conn, const char *query);
 
-// global data area
-AllQueryParamArrays all_query_param_arrays;
-WorkerOutputArray worker_output_array;
+// global data area 
+std::vector<QueryParamArray> all_query_param_arrays;
+std::vector<WorkerOutput> worker_output_array;
 
 int main(int argc, char* argv[]) 
 {
-    errno = 0; // workouround for libpq errno problem, need to reset
+    errno = 0; // workaround for libpq errno problem, need to reset
 
     // first, parse the arguments
     
@@ -145,51 +136,33 @@ int main(int argc, char* argv[])
 
     
     // now parse the input into internal representation 
-    // ready to be fed to workers, and assign hosts to workers,
-    // making sure each host's data is processed by the same worker
-    
-    HostWorkerMap host_worker_map;
+    // ready to be fed to workers, initializing workers' input data,
     
     char line[1024];
     int line_no = 1; // for CSV error location reporting
-    int next_worker_no = 0; // next available worker slot index
+    int real_num_workers = 0; // how many slots actually used
+    std::vector<WorkerInfo> worker_info_array(num_workers);
+
+    // initialize global data area
+    all_query_param_arrays.resize(num_workers);
+    worker_output_array.resize(num_workers);
     
     // skip the header line
     fgets(line, sizeof(line), in_file);
-    line_no++;
     
     while (fgets(line, sizeof(line), in_file))
     {
+        line_no++;
         QueryParam query_param;
         parse_query_param_line(line, line_no, query_param);
-        HostWorkerMap:: const_iterator iter = 
-            host_worker_map.find(query_param.host);
         
-        // if this host is already assigned to a worker, just add this element 
-        // to this worker's query parameters, otherwise first determine slot for 
-        // the new host 
-        int slot;
-        if(iter != host_worker_map.end())
-            slot = iter->second;
-        else 
-        {
-            // add host to map and assign it to next available worker
-            slot = (next_worker_no < num_workers) ?
-                next_worker_no : 0;
-            
-            // advance the pointer to next slot or reset to 0 if reached max
-            if(next_worker_no+1 < num_workers)
-                next_worker_no++;
-            else
-                next_worker_no = 0;
-
-            HostWorkerMap::value_type hw_pair(query_param.host, slot);
-            host_worker_map.insert(hw_pair);
-        }
+        // determine the slot for this host by simple hash
+        std::hash<std::string> str_hash;
+        size_t slot = str_hash(query_param.host) % num_workers;
         
         if(dbg) 
         {
-            fprintf(stderr, "debug: adding to slot %d: %s, %s, %s\n",
+            fprintf(stderr, "debug: adding to slot %lu: %s, %s, %s\n",
                 slot, 
                 query_param.host.c_str(), 
                 query_param.start_time.c_str(), 
@@ -197,52 +170,52 @@ int main(int argc, char* argv[])
             );
         }
         
-        // if such slot doesn't exist in input/output working areas, 
-        // create new empty one in both arrays.
-        if(slot+1 > all_query_param_arrays.size())
-        {
-            all_query_param_arrays.push_back(QueryParamArray());
-            worker_output_array.push_back(WorkerOutput());
+        if(worker_info_array[slot].worker_slot == -1) { // new worker
+            worker_info_array[slot].worker_slot = slot;
+            real_num_workers++;
         }
-        all_query_param_arrays[slot].push_back(query_param);
         
-        line_no++;
+        all_query_param_arrays[slot].push_back(query_param);
     }
     
     if(in_file != stdin)
         fclose(in_file);
-
+    
     // if we have work to do, start the workers
     
-    if( (num_workers = all_query_param_arrays.size()) == 0)
+    if(line_no == 1) // either no input or header only
     {
         fprintf(stderr, "info: no input CSV content, exiting\n");
         return EXIT_SUCCESS;
    }
     
-    std::vector<ThreadElem> threads_array;
-
     for (int i = 0; i < num_workers; i++) 
     {
-        ThreadElem thread_elem = {pthread_t(), i};
-        threads_array.push_back(thread_elem);
+        if(worker_info_array[i].worker_slot == -1)
+            continue; // slot not in use
+        worker_info_array[i].thread = pthread_t();
+        worker_info_array[i].query_param_array_p = &all_query_param_arrays[i];
+                
         int rc = 0;
         if ( (rc = pthread_create(
-                &threads_array[i].thread, 
+                &worker_info_array[i].thread, 
                 NULL, 
                 worker_func, 
-                (void*)&threads_array[i].worker_no)) 
+                (void*)&worker_info_array[i]) 
             ) 
+        )
         {
             error_out("failed to create thread num %d, error code=%d", i, rc);
         }
     }
-        
+    
     // wait for all workers to complete
     
     for (int i = 0; i < num_workers; i++) 
     {
-        pthread_join(threads_array[i].thread, NULL);
+        if(worker_info_array[i].worker_slot == -1)
+            continue; // slot not in use
+        pthread_join(worker_info_array[i].thread, NULL);
     }
     
     // calculate the final stats
@@ -260,6 +233,8 @@ int main(int argc, char* argv[])
     
     for(int i = 0; i < num_workers; i++) 
     {
+        if(worker_info_array[i].worker_slot == -1)
+            continue; // slot not in use
         total_time += worker_output_array[i].total_time;
         total_queries += worker_output_array[i].total_queries;
         min_time = fmin(min_time, worker_output_array[i].min_time);
@@ -284,6 +259,7 @@ int main(int argc, char* argv[])
     fprintf(stdout, 
         "Benchmark statistics (all times are in seconds with ns granularity):\n"
         "Total # of queries: %15d\n"
+        "Real  # of workers: %15d\n"
         "Query execution times:\n"
         "Total:              %15.9lf\n"
         "Minimum:            %15.9lf\n"
@@ -291,6 +267,7 @@ int main(int argc, char* argv[])
         "Average:            %15.9lf\n"
         "Median:             %15.9lf\n",
         total_queries,
+        real_num_workers,
         total_time,
         min_time,
         max_time,
@@ -355,8 +332,15 @@ void parse_query_param_line(char *line, int line_no, QueryParam &query_param)
 
 void *worker_func(void *arg)
 {
-    int worker_no = *(int*)arg;
+    WorkerInfo *worker_info = (WorkerInfo*)arg;
+    int worker_slot = worker_info->worker_slot;
 
+    if(dbg)
+        fprintf(stderr, "debug: started worker %d\n", worker_slot);
+
+    // this points to element in global area; use this for quick access
+    QueryParamArray *query_param_array_p = worker_info->query_param_array_p; 
+    
     int total_queries = 0;
     double 
         min_time   = DBL_MAX, 
@@ -390,7 +374,7 @@ void *worker_func(void *arg)
     }
 
     // traverse through all query parameters
-    for(int i = 0; i < all_query_param_arrays[worker_no].size(); i++) 
+    for(int i = 0; i < query_param_array_p->size(); i++) 
     {
         // generate the query from this workers input parameters
         char query[2048];
@@ -399,12 +383,12 @@ void *worker_func(void *arg)
             "FROM cpu_usage "
             "WHERE host='%s' AND ts BETWEEN '%s' AND '%s' "
             "GROUP BY 1",
-            all_query_param_arrays[worker_no][i].host.c_str(),
-            all_query_param_arrays[worker_no][i].start_time.c_str(),
-            all_query_param_arrays[worker_no][i].end_time.c_str()
+            (*query_param_array_p)[i].host.c_str(),
+            (*query_param_array_p)[i].start_time.c_str(),
+            (*query_param_array_p)[i].end_time.c_str()
         );
         if(dbg)
-            fprintf(stderr, "debug: from wkr %d: '%s'\n", worker_no, query);
+            fprintf(stderr, "debug: from wkr %d: '%s'\n", worker_slot, query);
 
         // execute the query, measuring execution time
         struct timespec query_start, query_end;
@@ -430,11 +414,11 @@ void *worker_func(void *arg)
     PQfinish(conn);
 
     // populate the global output area -- no synchronization needed
-    worker_output_array[worker_no].total_queries = total_queries;
-    worker_output_array[worker_no].total_time    = total_time;
-    worker_output_array[worker_no].min_time      = min_time;
-    worker_output_array[worker_no].max_time      = max_time;
-    worker_output_array[worker_no].all_times     = all_times;
+    worker_output_array[worker_slot].total_queries = total_queries;
+    worker_output_array[worker_slot].total_time    = total_time;
+    worker_output_array[worker_slot].min_time      = min_time;
+    worker_output_array[worker_slot].max_time      = max_time;
+    worker_output_array[worker_slot].all_times     = all_times;
 }
 
 void exit_gracefully(PGconn *conn)
